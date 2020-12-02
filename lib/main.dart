@@ -18,9 +18,9 @@ class ScannerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Barcode Scanner',
+      title: 'Customizable Barcode Scanner',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.green,
       ),
       home: Scanner(),
     );
@@ -37,7 +37,7 @@ class Scanner extends StatefulWidget {
 
 class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
   final BarcodeDetector barcodeDetector = FirebaseVision.instance.barcodeDetector(
-    BarcodeDetectorOptions(barcodeFormats: BarcodeFormat.ean13),
+    BarcodeDetectorOptions(barcodeFormats: BarcodeFormat.pdf417),
   );
 
   late final CameraController _controller;
@@ -47,11 +47,12 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
   List<Barcode> _barcodes = [];
 
   bool get hasBarcodes => (_barcodes.length != 0);
+  bool _showGreenBoxAndRedFAB = true;
 
   @override
   void initState() {
     super.initState();
-    _controller = CameraController(cameras[0], ResolutionPreset.high);
+    _controller = CameraController(cameras[0], ResolutionPreset.ultraHigh);
     _controller.initialize().then((_) {
       if (!mounted) {
         return;
@@ -59,15 +60,9 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
       setState(() {});
       _controller.startImageStream(_onLatestImageAvailable);
     });
-    _animationController = AnimationController(
-      duration: Duration(milliseconds: 2000),
-      vsync: this,
-    );
-    _animationController.repeat(reverse: true);
   }
 
   void _onLatestImageAvailable(CameraImage image) {
-    //print('_onLatestImageAvailable: ${image.format.raw}');
     if (_processing != null) {
       return;
     }
@@ -93,11 +88,30 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
     }
 
     final visionImage = FirebaseVisionImage.fromBytes(bytes, metadata);
-    _processing = barcodeDetector.detectInImage(visionImage).then((List<Barcode> barcodes) {
-      //print('Found ${barcodes.length}');
-      //for (final barcode in barcodes) {
-      //  print('\t${barcode.format.value}: ${barcode.boundingBox}: ${barcode.displayValue}');
-      //}
+    _processing = barcodeDetector.detectInImage(visionImage).then((List<Barcode> barcodes) async {
+      if (barcodes.isNotEmpty) {
+        await showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            _controller.stopImageStream();
+            int i = 1;
+            final items = barcodes.map((b) => '${i++}. ${b.displayValue}').join('\n');
+            return AlertDialog(
+             content: Text(items),
+              actions: [
+                FlatButton(
+                  onPressed: () {
+                    _showGreenBoxAndRedFAB = false;
+                    _showGreenFAB = true;
+                    Navigator.of(context).pop();
+                  },
+                  child: Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      }
       if (mounted) {
         setState(() {
           _barcodes = barcodes;
@@ -115,33 +129,13 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
-  void _onCapture() {
-    if (!hasBarcodes) {
-      return;
-    }
-    final barcodes = _barcodes;
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        int i = 1;
-        final items = barcodes.map((b) => '${i++}. ${b.displayValue}').join('\n');
-        return AlertDialog(
-          content: Text(items),
-          actions: [
-            FlatButton(
-              onPressed: () => Navigator.of(context)!.pop(),
-              child: Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Material(
-      child: Stack(
+    return Scaffold(
+      appBar: AppBar(
+        title: FittedBox(child: Text('Customizable Barcode Scanner')),
+      ),
+      body: Stack(
         fit: StackFit.expand,
         children: [
           if (_controller.value.isInitialized)
@@ -159,89 +153,47 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
                       ],
                     ),
                   ),
-                  RotatedBox(
-                    quarterTurns: 1,
-                    child: CustomPaint(
-                      painter: BarcodePainter(
-                        _animationController,
-                        _barcodes,
-                      ),
-                      size: Size(
-                        _controller.value.previewSize.width,
-                        _controller.value.previewSize.height,
+                  if (_showGreenBoxAndRedFAB)
+                    Center(
+                      child: Container(
+                        /// Change sizes to conform with responsive design!
+                        height: 800,
+                        width: 250,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            width: 6,
+                            color: (Colors.green[300])!,
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
-          RepaintBoundary(
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: ElevatedButton(
-                  onPressed: hasBarcodes ? _onCapture : null,
-                  child: Text('Capture'),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
+      floatingActionButton: _showGreenBoxAndRedFAB ? FloatingActionButton(
+        onPressed:  () {
+          _showGreenBoxAndRedFAB = false;
+          setState(() {});
+          _controller.stopImageStream();
+        },
+        backgroundColor: Colors.white,
+        child: Icon(Icons.cancel,
+        color: Colors.red,
+        size: 52,), //Change Icon
+      ) : FloatingActionButton(
+        onPressed:  () {
+          _barcodes.clear();
+          _showGreenBoxAndRedFAB = true;
+          setState(() {});
+          _controller.startImageStream(_onLatestImageAvailable);
+        },
+        child: Icon(Icons.refresh), //Change Icon
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat, //Change for different locations
     );
   }
 }
 
-class BarcodePainter extends CustomPainter {
-  BarcodePainter(this.animation, this.barcodes) : super(repaint: animation);
-
-  final Animation<double> animation;
-  final List<Barcode> barcodes;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (barcodes.length > 0) {
-      final paint = Paint()
-        ..color = Colors.lightGreenAccent
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = 8.0;
-
-      for (final barcode in barcodes) {
-        final points = barcode.cornerPoints;
-        final l = points.length;
-        for (int i = 0; i < l; i++) {
-          canvas.drawLine(
-            points[(i - 1) % l],
-            points[i % l],
-            paint,
-          );
-        }
-      }
-    } else {
-      final h = size.height - (size.height * 0.3);
-      final w = h / 2.0;
-      final b = Alignment.center.inscribe(Size(w, h), (Offset.zero & size));
-      canvas.drawRect(
-          b,
-          Paint()
-            ..color = Colors.black45
-            ..style = PaintingStyle.fill);
-      final scanX = b.left + (b.width * animation.value);
-      canvas.drawLine(
-          Offset(scanX, b.top),
-          Offset(scanX, b.bottom),
-          Paint()
-            ..color = Colors.redAccent
-            ..style = PaintingStyle.stroke
-            ..strokeCap = StrokeCap.round
-            ..strokeWidth = 4.0);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant BarcodePainter oldDelegate) {
-    return (barcodes != oldDelegate.barcodes);
-  }
-}
