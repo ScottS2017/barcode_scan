@@ -44,9 +44,6 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
   late final AnimationController _animationController;
 
   Future? _processing;
-  List<Barcode> _barcodes = [];
-
-  bool get hasBarcodes => (_barcodes.length != 0);
   bool _showGreenBoxAndRedFAB = true;
 
   @override
@@ -63,7 +60,7 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
   }
 
   void _onLatestImageAvailable(CameraImage image) {
-    if (_processing != null) {
+    if (_processing != null || _showGreenBoxAndRedFAB == false) {
       return;
     }
 
@@ -93,32 +90,26 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
         await showDialog(
           context: context,
           builder: (BuildContext context) {
-            _controller.stopImageStream();
             int i = 1;
-            final items = barcodes.map((b) => '${i++}. ${b.displayValue}').join('\n');
+            final items = barcodes.map((b) => '${i++}. ${b.displayValue}\n${b.rawValue}').join('\n\n');
             return AlertDialog(
-             content: Text(items),
+              content: Text(items),
               actions: [
                 FlatButton(
-                  onPressed: () {
-                    _showGreenBoxAndRedFAB = false;
-                    _showGreenFAB = true;
-                    Navigator.of(context).pop();
-                  },
+                  onPressed: () => Navigator.of(context).pop(),
                   child: Text('Close'),
                 ),
               ],
             );
           },
         );
+        if(mounted){
+          setState(() {
+            _showGreenBoxAndRedFAB = false;
+          });
+        }
       }
-      if (mounted) {
-        setState(() {
-          _barcodes = barcodes;
-          _processing = null;
-        });
-      }
-    });
+    }).whenComplete(() => _processing = null);
   }
 
   @override
@@ -173,27 +164,35 @@ class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
             ),
         ],
       ),
-      floatingActionButton: _showGreenBoxAndRedFAB ? FloatingActionButton(
-        onPressed:  () {
-          _showGreenBoxAndRedFAB = false;
-          setState(() {});
-          _controller.stopImageStream();
-        },
-        backgroundColor: Colors.white,
-        child: Icon(Icons.cancel,
-        color: Colors.red,
-        size: 52,), //Change Icon
-      ) : FloatingActionButton(
-        onPressed:  () {
-          _barcodes.clear();
-          _showGreenBoxAndRedFAB = true;
-          setState(() {});
-          _controller.startImageStream(_onLatestImageAvailable);
-        },
-        child: Icon(Icons.refresh), //Change Icon
-      ),
+
+      floatingActionButton: _showGreenBoxAndRedFAB
+          ?
+
+          /// Cancel FAB
+          FloatingActionButton(
+              onPressed: () {
+                setState(() {
+                  _showGreenBoxAndRedFAB = false;
+                });
+              },
+              backgroundColor: Colors.white,
+              child: Icon(
+                Icons.cancel,
+                color: Colors.red,
+                size: 52,
+              ), //Change Icon
+
+              /// Refresh FAB
+            )
+          : FloatingActionButton(
+              onPressed: () {
+                setState(() {
+                  _showGreenBoxAndRedFAB = true;
+                });
+              },
+              child: Icon(Icons.refresh), //Change Icon
+            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat, //Change for different locations
     );
   }
 }
-
