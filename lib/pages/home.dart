@@ -36,7 +36,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     /// For pdf417 the resolution has to be ultraHigh because the barcode is huge
     _controller = CameraController(cameras[0], ResolutionPreset.ultraHigh);
     _controller.initialize().then((_) {
-      /// Proceed only if this state object is mounted in the widget tree
+      /// Initialize the stream only if this state object is mounted in the widget tree
       if (!mounted) {
         return;
       }
@@ -62,6 +62,9 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       }).toList(),
     );
 
+    /// Image planes are what many people call layers (RBGA).
+    /// We're ignoring colors, but we don't want to miss any data.
+    /// so we fold (combine) the planes
     final total = image.planes.fold<int>(0, (prev, el) => prev + el.bytes.length);
     final bytes = Uint8List(total);
     for (int offset = 0, i = 0; offset < total;) {
@@ -72,11 +75,14 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
 
     final visionImage = FirebaseVisionImage.fromBytes(bytes, metadata);
     _processing = barcodeDetector.detectInImage(visionImage).then((List<Barcode> barcodes) async {
+      /// If we have a barcode, open the popup dialog
       if (barcodes.isNotEmpty) {
         await showDialog(
           context: context,
           builder: (BuildContext context) {
             int i = 1;
+            /// For this demo we're just making a single string by
+            /// mashing together all the info in the barcode
             final items = barcodes.map((b) => '${i++}. ${b.displayValue}\n${b.rawValue}').join('\n\n');
             return AlertDialog(
               content: Text(items),
@@ -89,8 +95,11 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
             );
           },
         );
+        /// Be sure this state object is attached to the widget tree before triggering
+        /// a new frame.
         if(mounted){
           setState(() {
+            /// Now that we have detected a barcode, stop eating up resources
             _activelyScanning = false;
           });
         }
@@ -109,6 +118,8 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        /// Here, FittedBox will reduce the size of
+        /// the text until it fits on one line
         title: FittedBox(child: Text('Customizable Barcode Scanner')),
       ),
       body: Stack(
@@ -132,7 +143,8 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                   if (_activelyScanning)
                     Center(
                       child: Container(
-                        /// Change sizes to conform with responsive design!
+                        /// Don't do this in a real app!
+                        /// (Set up your sizes to conform with responsive design)
                         height: 800,
                         width: 250,
                         decoration: BoxDecoration(
