@@ -1,13 +1,53 @@
-import 'dart:typed_data';
+// MIT License
+//
+// Copyright (c) 2020 Simon Lightfoot, Scott Stoll, and Ikesh Pack
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+// KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+// WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+// PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+// CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
 
+import 'package:barcode_scan/pages/home.dart';
 import 'package:camera/camera.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_ml_vision/firebase_ml_vision.dart';
 import 'package:flutter/material.dart';
 
+/// This is a proof of concept for using a barcode reader
+/// to read driver's license info in a Flutter app. This code is
+/// somewhat over-commented due to the fact that it will be read
+/// by many who are not yet experienced Flutter devs.
+///
+///  - Scott Stoll
+
+/// Many devices have more than one camera
 late final List<CameraDescription> cameras;
 
 Future<void> main() async {
+  /// Regarding ensureInitialized() :
+  ///  1) We need to initialize Firebase and access the cameras
+  ///     before calling runApp. However, runApp is what normally
+  ///     handles creating the bindings that bind the framework to
+  ///     the Flutter engine. These bindings include ServicesBinding,
+  ///     which is needed in order to access platform channels
+  ///  2) We solve this by calling ensureInitialized to tell the
+  ///     app to create the bindings early, so ServicesBinding
+  ///     is ready to use before we try to initialize Firebase
+  ///     and access the camera
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   cameras = await availableCameras();
@@ -22,177 +62,7 @@ class ScannerApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.green,
       ),
-      home: Scanner(),
-    );
-  }
-}
-
-@immutable
-class Scanner extends StatefulWidget {
-  const Scanner({Key? key}) : super(key: key);
-
-  @override
-  _ScannerState createState() => _ScannerState();
-}
-
-class _ScannerState extends State<Scanner> with SingleTickerProviderStateMixin {
-  final BarcodeDetector barcodeDetector = FirebaseVision.instance.barcodeDetector(
-    BarcodeDetectorOptions(barcodeFormats: BarcodeFormat.pdf417),
-  );
-
-  late final CameraController _controller;
-  late final AnimationController _animationController;
-
-  Future? _processing;
-  bool _showGreenBoxAndRedFAB = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = CameraController(cameras[0], ResolutionPreset.ultraHigh);
-    _controller.initialize().then((_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {});
-      _controller.startImageStream(_onLatestImageAvailable);
-    });
-  }
-
-  void _onLatestImageAvailable(CameraImage image) {
-    if (_processing != null || _showGreenBoxAndRedFAB == false) {
-      return;
-    }
-
-    final metadata = FirebaseVisionImageMetadata(
-      size: Size(image.width.toDouble(), image.height.toDouble()),
-      rawFormat: image.format.raw,
-      planeData: image.planes.map((plane) {
-        return FirebaseVisionImagePlaneMetadata(
-          bytesPerRow: plane.bytesPerRow,
-          height: plane.height,
-          width: plane.width,
-        );
-      }).toList(),
-    );
-
-    final total = image.planes.fold<int>(0, (prev, el) => prev + el.bytes.length);
-    final bytes = Uint8List(total);
-    for (int offset = 0, i = 0; offset < total;) {
-      final plane = image.planes[i++];
-      bytes.setAll(offset, plane.bytes);
-      offset += plane.bytes.length;
-    }
-
-    final visionImage = FirebaseVisionImage.fromBytes(bytes, metadata);
-    _processing = barcodeDetector.detectInImage(visionImage).then((List<Barcode> barcodes) async {
-      if (barcodes.isNotEmpty) {
-        await showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            int i = 1;
-            final items = barcodes.map((b) => '${i++}. ${b.displayValue}\n${b.rawValue}').join('\n\n');
-            return AlertDialog(
-              content: Text(items),
-              actions: [
-                FlatButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text('Close'),
-                ),
-              ],
-            );
-          },
-        );
-        if(mounted){
-          setState(() {
-            _showGreenBoxAndRedFAB = false;
-          });
-        }
-      }
-    }).whenComplete(() => _processing = null);
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    _controller.stopImageStream();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: FittedBox(child: Text('Customizable Barcode Scanner')),
-      ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_controller.value.isInitialized)
-            FittedBox(
-              fit: BoxFit.cover,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: _controller.value.previewSize.height,
-                    height: _controller.value.previewSize.width,
-                    child: Stack(
-                      children: [
-                        CameraPreview(_controller),
-                      ],
-                    ),
-                  ),
-                  if (_showGreenBoxAndRedFAB)
-                    Center(
-                      child: Container(
-                        /// Change sizes to conform with responsive design!
-                        height: 800,
-                        width: 250,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            width: 6,
-                            color: (Colors.green[300])!,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      ),
-
-      floatingActionButton: _showGreenBoxAndRedFAB
-          ?
-
-          /// Cancel FAB
-          FloatingActionButton(
-              onPressed: () {
-                setState(() {
-                  _showGreenBoxAndRedFAB = false;
-                });
-              },
-              backgroundColor: Colors.white,
-              child: Icon(
-                Icons.cancel,
-                color: Colors.red,
-                size: 52,
-              ), //Change Icon
-
-              /// Refresh FAB
-            )
-          : FloatingActionButton(
-              onPressed: () {
-                setState(() {
-                  _showGreenBoxAndRedFAB = true;
-                });
-              },
-              child: Icon(Icons.refresh), //Change Icon
-            ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat, //Change for different locations
+      home: Home(),
     );
   }
 }
